@@ -23,7 +23,7 @@ from itertools import chain
 from linecache import getline
 import mimetypes
 from optparse import OptionParser
-from os import listdir
+from os import listdir, environ
 from os.path import join, basename, splitext, isdir
 from pickle import dumps, loads
 import re
@@ -31,8 +31,10 @@ from shutil import rmtree, copy
 from sys import argv, exit
 from tempfile import mkdtemp
 try:
+    from urllib import quote_plus
     from urllib2 import build_opener, HTTPHandler, HTTPSHandler, HTTPError
 except ImportError:
+    from urllib.parse import quote_plus
     from urllib.request import build_opener, HTTPHandler, HTTPSHandler
     from urllib.error import HTTPError
 try:
@@ -492,6 +494,20 @@ class DownloadedReq(object):
                     file.write(chunk)
 
         url = link.url.split('#', 1)[0]
+
+        # Check the pip download cache. If the file is found, return early and
+        # be happy. Otherwise, fallback to the normal download path. If no pip
+        # cache is defined, fall back to the download route immediately.
+        if 'PIP_DOWNLOAD_CACHE' in environ:
+            try:
+                cache_path = join(environ['PIP_DOWNLOAD_CACHE'], quote_plus(url))
+                filename = link.filename
+                with open(cache_path) as cached_download:
+                    pipe_to_file(cached_download, join(self._temp_path, filename))
+                return filename
+            except IOError:
+                pass
+
         try:
             response = opener(urlparse(url).scheme != 'http').open(url)
         except (HTTPError, IOError) as exc:

@@ -20,9 +20,9 @@ from tempfile import mkdtemp
 from threading import Thread
 from unittest import TestCase
 try:
-    from urllib import unquote
+    from urllib import unquote, quote_plus
 except ImportError:
-    from urllib.parse import unquote
+    from urllib.parse import unquote, quote_plus
 
 from nose.tools import eq_, nottest
 
@@ -331,6 +331,44 @@ class HashParsingTests(ServerTestCase):
             useless==1.0
             """)
         eq_(reqs[0]._expected_hashes(), ['trailing_space_should_be_stripped'])
+
+
+class CacheTests(FullStackTests):
+    """Tests that the cache is used when appropriate"""
+
+    @classmethod
+    def setup_class(cls):
+        super(CacheTests, cls).setup_class()
+        # Make a cache.
+        cls.cache_dir = mkdtemp(prefix='peep-')
+        url = cls.index_url()
+        cls.old_cache = environ.get('PIP_DOWNLOAD_CACHE', None)
+        environ['PIP_DOWNLOAD_CACHE'] = cls.cache_dir
+        # Make a poison file that will get hit in the cache, but won't match the hash.
+        open(join(cls.cache_dir, quote_plus(url)), 'wb').close()
+
+    @classmethod
+    def teardown_class(cls):
+        super(CacheTests, cls).teardown_class()
+        # Remove the cache. This will also remove the poison file made.
+        rmtree(cls.cache_dir)
+        # Reset the environ variable
+        if cls.old_cache is not None:
+            environ['PIP_DOWNLOAD_CACHE'] = cls.old_cache
+        else:
+            del environ['PIP_DOWNLOAD_CACHE']
+
+    def test_cache_is_hit(self):
+        """peep should hit the cache, find the poison file, and explode."""
+        try:
+            self.install_from_string(
+                # This is the correct hash of the file, but not the poison file.
+                """# sha256: f_y0x5sQfR1nj8HXuHStXojp_ihntAG-clNT2MNxF10
+                useless==1.0""")
+        except CalledProcessError as exc:
+            eq_(exc.returncode, SOMETHING_WENT_WRONG)
+        else:
+            self.fail("Peep exited successfully but shouldn't have.")
 
 
 @nottest
