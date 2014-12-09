@@ -191,7 +191,7 @@ class ServerTestCase(InstallTestCase):
         return 'http://localhost:{port}/'.format(port=cls.port)
 
 
-class FullStackTests(ServerTestCase):
+class FullStackTestCase(ServerTestCase):
     """Tests which run peep via the shell, as a separate process
 
     This is necessary because some of the internals of pip we call contain
@@ -238,6 +238,9 @@ class FullStackTests(ServerTestCase):
             environ['PEEP_TEST_TELLTALE'] = telltale_path
             yield
             eq_(isfile(telltale_path), should_run_it)
+
+
+class TestBasicInstallation(FullStackTestCase):
 
     def test_success(self):
         """If a hash matches, peep should do its work and exit happily."""
@@ -327,13 +330,13 @@ class HashParsingTests(ServerTestCase):
     def test_whitespace_stripping(self):
         """Make sure trailing whitespace is stripped from hashes."""
         reqs = self.downloaded_reqs("""
-            # sha256: trailing_space_should_be_stripped   
+            # sha256: trailing_space_should_be_stripped
             useless==1.0
             """)
         eq_(reqs[0]._expected_hashes(), ['trailing_space_should_be_stripped'])
 
 
-class CacheTests(FullStackTests):
+class CacheTests(FullStackTestCase):
     """Tests that the cache is used when appropriate"""
 
     @classmethod
@@ -342,8 +345,6 @@ class CacheTests(FullStackTests):
         # Make a cache.
         cls.cache_dir = mkdtemp(prefix='peep-')
         url = cls.index_url()
-        cls.old_cache = environ.get('PIP_DOWNLOAD_CACHE', None)
-        environ['PIP_DOWNLOAD_CACHE'] = cls.cache_dir
         # Make a poison file that will get hit in the cache, but won't match the hash.
         open(join(cls.cache_dir, quote_plus(url)), 'wb').close()
 
@@ -352,23 +353,28 @@ class CacheTests(FullStackTests):
         super(CacheTests, cls).teardown_class()
         # Remove the cache. This will also remove the poison file made.
         rmtree(cls.cache_dir)
-        # Reset the environ variable
-        if cls.old_cache is not None:
-            environ['PIP_DOWNLOAD_CACHE'] = cls.old_cache
-        else:
-            del environ['PIP_DOWNLOAD_CACHE']
 
     def test_cache_is_hit(self):
         """peep should hit the cache, find the poison file, and explode."""
-        try:
+        with self.running_setup_py(should_run_it=False):
+            try:
+                environ['PIP_DOWNLOAD_CACHE'] = self.cache_dir
+                self.install_from_string(
+                    # This is the correct hash of the file, but not the poison file.
+                    """# sha256: f_y0x5sQfR1nj8HXuHStXojp_ihntAG-clNT2MNxF10
+                    useless==1.0""")
+            except CalledProcessError as exc:
+                eq_(exc.returncode, SOMETHING_WENT_WRONG)
+            else:
+                self.fail("Peep exited successfully but shouldn't have.")
+
+    def test_cache_ignored_when_no_envvar(self):
+        """peep should not hit the cache when the envvar is removed."""
+        with self.running_setup_py(True):
             self.install_from_string(
                 # This is the correct hash of the file, but not the poison file.
                 """# sha256: f_y0x5sQfR1nj8HXuHStXojp_ihntAG-clNT2MNxF10
                 useless==1.0""")
-        except CalledProcessError as exc:
-            eq_(exc.returncode, SOMETHING_WENT_WRONG)
-        else:
-            self.fail("Peep exited successfully but shouldn't have.")
 
 
 @nottest

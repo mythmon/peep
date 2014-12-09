@@ -498,7 +498,7 @@ class DownloadedReq(object):
         # Check the pip download cache. If the file is found, return early and
         # be happy. Otherwise, fallback to the normal download path. If no pip
         # cache is defined, fall back to the download route immediately.
-        if 'PIP_DOWNLOAD_CACHE' in environ:
+        if environ.get('PIP_DOWNLOAD_CACHE'):
             try:
                 cache_path = join(environ['PIP_DOWNLOAD_CACHE'], quote_plus(url))
                 filename = link.filename
